@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="240" viewBox="0 0 960 240">
+<rect width="960" height="240" rx="12" fill="#101810"/>
+<path d="M0 12H960M0 228H960" stroke="#527a32" stroke-width="2"/>
+<g fill="#8baa69" font-family="monospace" text-anchor="middle"><text x="480" y="52" font-size="25" letter-spacing="7">SWAMPMATRIX</text><text x="480" y="84" font-size="15" letter-spacing="3">SWAMP OS / SECURITY TOOLKIT</text><text x="480" y="148" font-size="44" font-weight="bold" fill="#d5e8bd">SQLi Orchestrator</text><text x="480" y="192" font-size="15">RECON / ASSESSMENT / ORCHESTRATION / REPORTING</text></g>
+</svg>
