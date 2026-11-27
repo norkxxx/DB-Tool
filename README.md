@@ -1,17 +1,11 @@
 <div align="center">
-# ONLY FOR EDUCATIONAL PURPOSES
-# SWAMP MATRIX
+## ONLY FOR EDUCATIONAL PURPOSES
+<img src="assets/swamp-banner.svg" alt="SwampMatrix — Swamp OS Security Toolkit — SQLi Orchestrator" width="960">
 
-### SWAMP OS / SECURITY TOOLKIT
-
-# SQLi Orchestrator
-
-`RECON` · `ASSESSMENT` · `ORCHESTRATION` · `REPORTING`
-
-![Python](https://img.shields.io/badge/Python-3.9%2B-183d2b?style=flat-square&logo=python&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-supported-183d2b?style=flat-square&logo=docker&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.9%2B-527a32?style=flat-square&logo=python&logoColor=d5e8bd)
+![Docker](https://img.shields.io/badge/Docker-supported-527a32?style=flat-square&logo=docker&logoColor=d5e8bd)
 ![SwampMatrix](https://img.shields.io/badge/SwampMatrix-Security-527a32?style=flat-square)
-![SwampOS](https://img.shields.io/badge/Swamp_OS-Ecosystem-101810?style=flat-square)
+![SwampOS](https://img.shields.io/badge/Swamp_OS-Ecosystem-354a32?style=flat-square)
 
 **Security research · Controlled environments · Authorized assessments**
 
