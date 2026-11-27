@@ -1,0 +1,23 @@
+# Dockerfile.oob — отдельный образ DNS-сервера OOB-канала.
+# Сборка: docker build -f Dockerfile.oob -t wormsqli-oob.
+# Запуск (порт 53/udp, нужен host-сеть или cap_net_bind_service):
+# docker run -d --rm --network host \
+# -v $PWD/oob_hits:/app wormsqli-oob \
+# --domain oob.yourdomain.com --ip 10.0.0.1
+
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY oob_dns_server.py./
+
+# oob_hits.json пишем в /app — монтируем том для чтения оркестратором
+ENV PYTHONUNBUFFERED=1
+
+# даём контейнеру право на порт 53 без root
+RUN setcap cap_net_bind_service=+ep /usr/local/bin/python3.12 || true
+
+VOLUME ["/app"]
+EXPOSE 53/udp
+
+ENTRYPOINT ["python", "oob_dns_server.py"]
+CMD ["--domain", "oob.yourdomain.com", "--ip", "127.0.0.1"]

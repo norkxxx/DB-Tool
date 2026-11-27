@@ -1,0 +1,180 @@
+name: CI
+
+on:
+ push:
+ branches: [main, master]
+ pull_request:
+ branches: [main, master]
+
+jobs:
+
+ # ---------- 1. Сборка и тест C++-ядра ----------
+ cpp-core:
+ name: C++ core build + smoke
+ runs-on: ubuntu-latest
+ steps:
+ - uses: actions/checkout@v4
+
+ - uses: actions/setup-python@v5
+ with:
+ python-version: "3.12"
+
+ - name: Install pybind11
+ run: pip install pybind11
+
+ - name: Build sqli_core
+ run: python build_sqli_core.py
+
+ - name: Smoke tests
+ run: |
+ python - <<'PY'
+ import sqli_core
+ # мутации: детерминированность входа, дедуп, количество
+ m1 = sqli_core.mutate("' AND 1=1-- -", 6)
+ m2 = sqli_core.mutate("' AND 1=1-- -", 6)
+ assert len(m1) >= 8, f"мало мутаций: {len(m1)}"
+ assert len(set(m1)) == len(m1), "дубликаты в мутациях"
+ assert "' AND 1=1-- -" in m1, "оригинал потерян"
+
+ # дифф: одинаковые ответы ~1.0, разные < порога
+ same = sqli_core.diff_score(
+ "<html><body>User: admin</body></html>",
+ "<html><body>User: admin</body></html>")
+ diff = sqli_core.diff_score(
+ "<html><body>User: admin</body></html>",
+ "<html><body>Error: syntax near 'x'</body></html>")
+ assert same > 0.95, f"same={same}"
+ assert diff < 0.82, f"diff={diff}"
+
+ # нормализация: числа и csrf-токены не должны ломать сходство
+ a = "<p>token=abc123csrf&ts=1690000000</p>"
+ b = "<p>token=zzz999csrf&ts=1700000000</p>"
+ n = sqli_core.diff_score(a, b)
+ assert n > 0.5, f"нормализация шумит: {n}"
+ print(f"[OK] мутаций={len(m1)}, same={same:.2f}, "
+ f"diff={diff:.2f}, noise={n:.2f}")
+ PY
+
+ - name: Upload artifact
+ uses: actions/upload-artifact@v4
+ with:
+ name: sqli_core
+ path: sqli_core.so
+ retention-days: 7
+
+ # ---------- 2. Линт и синтаксис Python/Perl ----------
+ lint:
+ name: Lint & syntax
+ runs-on: ubuntu-latest
+ steps:
+ - uses: actions/checkout@v4
+ - uses: actions/setup-python@v5
+ with:
+ python-version: "3.12"
+
+ - name: Syntax check
+ run: |
+ python -m py_compile sqli_orchestrator.py oob_dns_server.py build_sqli_core.py
+ perl -c sqli_ninja_ext.pl
+
+ - name: Install runtime deps (без sqlmap — тяжёлый)
+ run: pip install curl_cffi redis pybind11
+
+ - name: Import check (fallback-режим, без C++ ядра)
+ run: |
+ python -c "import sqli_orchestrator as o; \
+ print('fallback OK, HAS_CPP =', o.HAS_CPP); \
+ assert o.HAS_CPP is False"
+ python -c "import sqli_orchestrator as o; \
+ d = o.diff_score('<a>x</a>','<a>x</a>'); \
+ assert d > 0.9, d; print('py diff OK:', round(d,2))"
+
+ # ---------- 3. Docker-образ ----------
+ docker:
+ name: Docker build
+ runs-on: ubuntu-latest
+ needs: [cpp-core, lint]
+ steps:
+ - uses: actions/checkout@v4
+
+ - name: Set up Docker Buildx
+ uses: docker/setup-buildx-action@v3
+
+ - name: Build image
+ uses: docker/build-push-action@v6
+ with:
+ context:.
+ push: false
+ tags: wormsqli:ci
+ load: true
+ cache-from: type=gha
+ cache-to: type=gha,mode=max
+
+ - name: Verify C++ core inside image
+ run: |
+ docker run --rm wormsqli:ci python -c \
+ "import sqli_core; \
+ assert sqli_core.diff_score('<a>1</a>','<a>1</a>') > 0.9; \
+ print('[OK] C++ core in image')"
+
+ - name: Verify entrypoint (help)
+ run: docker run --rm wormsqli:ci --version
+
+ - name: Build OOB image
+ run: docker build -f Dockerfile.oob -t wormsqli-oob:ci.
+
+ # ---------- 4. Интеграционный тест (локальный Redis + воркер) ----------
+ integration:
+ name: Integration (Redis queue)
+ runs-on: ubuntu-latest
+ needs: [docker]
+ services:
+ redis:
+ image: redis:7-alpine
+ ports:
+ - 6379:6379
+ options: >-
+ --health-cmd "redis-cli ping"
+ --health-interval 5s
+ --health-timeout 3s
+ --health-retries 10
+ steps:
+ - uses: actions/checkout@v4
+ - uses: actions/setup-python@v5
+ with:
+ python-version: "3.12"
+
+ - name: Install deps
+ run: pip install curl_cffi redis pybind11
+
+ - name: Build C++ core
+ run: python build_sqli_core.py
+
+ - name: Dispatcher push
+ run: |
+ # httpbin как безопасная тест-цель (инъекций нет — проверяем
+ # сам конвейер: очередь -> воркер -> отчёт -> результаты в Redis)
+ echo "https://httpbin.org/get?id=1" > targets.txt
+ python sqli_orchestrator.py --list targets.txt \
+ --redis redis://localhost:6379 --no-sqlmap
+
+ - name: Worker run (таймаут-страховка)
+ run: |
+ timeout 180 python sqli_orchestrator.py \
+ --redis-worker redis://localhost:6379 \
+ --workers 2 --no-sqlmap --html || test $? -eq 124 || exit 1
+
+ - name: Check results in Redis
+ run: |
+ python - <<'PY'
+ import redis, json
+ r = redis.Redis.from_url("redis://localhost:6379",
+ decode_responses=True)
+ results = r.lrange("sqli:results", 0, -1)
+ assert results, "нет результатов в sqli:results"
+ rep = json.loads(results[0])
+ assert rep["target"].startswith("https://httpbin.org")
+ assert isinstance(rep["findings"], list)
+ print(f"[OK] {len(results)} отчётов в Redis, target="
+ f"{rep['target']}, findings={len(rep['findings'])}")
+ PY

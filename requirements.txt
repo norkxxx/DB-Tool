@@ -1,0 +1,20 @@
+# HTTP + TLS-имперсонация Chrome (обход Cloudflare)
+curl_cffi>=0.7
+
+# Основной движок эксплуатации
+sqlmap>=1.8
+
+# C++ ядро (мутации + дифф): pip install pybind11, затем
+# python build_sqli_core.py (нужен g++/clang в системе)
+pybind11>=2.12
+
+# Распределённый режим (--redis / --redis-worker)
+redis>=5.0
+
+# --- Опционально ---
+# ghauri>=1.0 # --ghauri
+# sqlninja # Perl, apt install sqlninja или github.com/Quaker/sqlninja
+
+# Ключи через окружение:
+# WORMGPT_API_KEY, DOJO_API_KEY, NESSUS_ACCESS_KEY, NESSUS_SECRET_KEY
+# OOB_ENABLED=1 # включить OOB-пейлоады в fuzz

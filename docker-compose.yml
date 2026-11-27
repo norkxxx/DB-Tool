@@ -1,0 +1,80 @@
+# docker-compose.yml — распределённый кластер одной командой.
+#
+# Запуск:
+# docker compose up -d --scale worker=4
+#
+# Архитектура:
+# redis — брокер очередей (порт 6379 наружу не торчит)
+# disp — one-shot диспетчер: читает targets.txt, пушит в очередь,
+# завершается и оставляет за собой чистый exit 0
+# worker xN — воркеры: тянут цели из очереди, сканируют,
+# завершаются сами после ~60с тишины
+#
+# Результаты:./reports/ (общий том) + Redis-список sqli:results
+# Логи:./logs/ (общий том, ротация встроенная)
+
+services:
+
+ redis:
+ image: redis:7-alpine
+ command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+ restart: unless-stopped
+ volumes:
+ - redis_data:/data
+ healthcheck:
+ test: ["CMD", "redis-cli", "ping"]
+ interval: 5s
+ timeout: 3s
+ retries: 10
+
+ # Диспетчер: пушит цели из./targets.txt и выходит
+ disp:
+ build:.
+ depends_on:
+ redis:
+ condition: service_healthy
+ volumes:
+ -./targets.txt:/app/targets.txt:ro
+ -./reports:/app/reports
+ -./logs:/app/logs
+ # WAF-обход WormGPT: ключ передаём через окружение (.env файл:
+ # WORMGPT_API_KEY=...)
+ environment:
+ - WORMGPT_API_KEY=${WORMGPT_API_KEY:-}
+ restart: "no"
+ command:
+ - --list
+ - /app/targets.txt
+ - --redis
+ - redis://redis:6379
+
+ # Воркеры: масштабируются --scale worker=N
+ worker:
+ build:.
+ depends_on:
+ redis:
+ condition: service_healthy
+ volumes:
+ -./reports:/app/reports
+ -./logs:/app/logs
+ -./proxies.txt:/app/proxies.txt:ro
+ environment:
+ - WORMGPT_API_KEY=${WORMGPT_API_KEY:-}
+ - OOB_ENABLED=${OOB_ENABLED:-0}
+ restart: "no"
+ command:
+ - --redis-worker
+ - redis://redis:6379
+ - --workers
+ - "8"
+ - --worm
+ - --worm-loop
+ - "2"
+ - --html
+ - --proxy
+ - /app/proxies.txt
+ deploy:
+ replicas: 2 # docker compose up -d --scale worker=4 переопределит
+
+volumes:
+ redis_data:

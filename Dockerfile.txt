@@ -1,0 +1,81 @@
+# Dockerfile — SQLi-оркестратор v3.0 DISTRIBUTED FULL
+# Многоступенчатая сборка: C++-ядро компилируется автоматически,
+# итоговый образ готов к запуску и как воркер, и как одиночный скан.
+#
+# Сборка: docker build -t wormsqli.
+# Одиночный запуск:
+# docker run --rm -v $PWD/reports:/app/reports wormsqli \
+# -u "http://target/page?id=1" --worm
+# Воркер распределённого режима:
+# docker run --rm wormsqli --redis-worker redis://redis:6379 --workers 8 --worm
+
+# ---------- ЭТАП 1: сборка C++-ядра ----------
+FROM python:3.12-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ g++ make \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN pip install --no-cache-dir pybind11
+
+COPY sqli_core.cpp build_sqli_core.py./
+
+# Компилируем ядро тем же вызовом, что и локально, но без smoke-теста
+# (в билдере нет нужных зависимостей рантайма — только компиляция)
+RUN python - <<'PY'
+import pybind11, subprocess, sys
+include = pybind11.get_include()
+cmd = ["g++", "-O3", "-Wall", "-shared", "-std=c++17", "-fPIC",
+ f"-I{include}", "sqli_core.cpp", "-o", "sqli_core.so"]
+print("[*] Компиляция:", " ".join(cmd))
+subprocess.check_call(cmd)
+print("[+] sqli_core.so собран")
+PY
+
+# ---------- ЭТАП 2: рантайм ----------
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.title="wormsqli" \
+ org.opencontainers.image.description="SQLi orchestrator: C++ core, diff-detect, OOB DNS, WormGPT cascade, Redis distributed" \
+ org.opencontainers.image.version="3.0.0"
+
+# sqlmap и perl-инструменты нужны в рантайме; git — для pip-пакетов из VCS
+RUN apt-get update && apt-get install -y --no-install-recommends \
+ git perl \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Сначала зависимости (кэш слоёв: код меняется чаще requirements)
+COPY requirements.txt./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Готовый C++-модуль из этапа сборки
+COPY --from=builder /build/sqli_core.so /app/sqli_core.so
+
+# Остальной код
+COPY sqli_orchestrator.py oob_dns_server.py sqli_ninja_ext.pl \
+ build_sqli_core.py sqli_core.cpp./
+
+# Куда складывать отчёты/логи/состояние (монтируется снаружи)
+RUN mkdir -p /app/reports /app/logs \
+ && ln -s /app/reports /app/out
+
+WORKDIR /app
+
+# Проверка, что C++-ядро подхватилось и всё импортируется
+RUN python -c "import sqli_core, sqli_orchestrator; \
+ print('[+] C++ core OK, diff:', \
+ sqli_core.diff_score('<html><body>ok</body></html>', \
+ '<html><body>ok</body></html>'))"
+
+ENV PYTHONUNBUFFERED=1 \
+ OOB_ENABLED=0
+
+# Отчёты и логи наружу
+VOLUME ["/app/reports", "/app/logs"]
+
+ENTRYPOINT ["python", "sqli_orchestrator.py"]
+# дефолт: показать справку; реальный режим задаётся аргументами
+CMD ["--help"]

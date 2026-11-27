@@ -1,0 +1,16 @@
+.git
+.github
+__pycache__
+*.pyc
+logs/
+reports/
+oob_hits/
+oob_hits.json
+sqli_batch_state.json
+redis_state_*.json
+sqli_report*.json
+sqli_report*.html
+targets.txt
+proxies.txt
+.env
+*.so

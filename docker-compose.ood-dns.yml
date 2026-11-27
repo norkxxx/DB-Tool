@@ -1,0 +1,22 @@
+# docker-compose.oob-dns.yml — оверлей для OOB-канала.
+# Подключается к основному стеку:
+# docker compose -f docker-compose.yml -f docker-compose.oob-dns.yml up -d
+#
+# Требования: домен oob.yourdomain.com с NS-записью на публичный IP
+# хоста, порт 53/udp проброшен на хост (см. network_mode ниже).
+
+services:
+
+ oob-dns:
+ build:.
+ restart: unless-stopped
+ # DNS должен слушать 53/udp напрямую на хосте — без NAT-моста
+ network_mode: host
+ volumes:
+ -./oob_hits:/app # oob_hits.json будет в./oob_hits/
+ command:
+ - __oob_placeholder__
+ # реальная команда подставляется entrypoint-обёрткой ниже;
+ # docker compose не умеет подменять ENTRYPOINT, поэтому
+ # используем прямой вызов python-скрипта:
+ # (см. oob entrypoint в Dockerfile.oob)
